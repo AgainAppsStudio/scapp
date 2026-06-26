@@ -10,6 +10,8 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- jsPDF library for professional offline invoice generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- html5-qrcode library for barcode scanning -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -52,6 +54,14 @@
         }
         ::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
+        }
+        @keyframes scanner-sweep {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .animate-scanner-sweep {
+            animation: scanner-sweep 2.5s infinite linear;
         }
     </style>
 </head>
@@ -233,9 +243,16 @@
                 <div class="lg:col-span-7 flex flex-col space-y-4 overflow-hidden h-full">
                     <!-- Search and filters -->
                     <div class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-3">
-                        <div class="relative flex-1">
-                            <i data-lucide="search" class="absolute left-3.5 top-3 text-slate-400 w-5 h-5"></i>
-                            <input type="text" id="pos-search-input" oninput="filterPOSProducts()" class="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-600 text-sm" placeholder="Search product name, category, or SKU...">
+                        <div class="relative flex-1 flex space-x-2">
+                            <div class="relative flex-1">
+                                <i data-lucide="search" class="absolute left-3.5 top-3 text-slate-400 w-5 h-5"></i>
+                                <input type="text" id="pos-search-input" oninput="filterPOSProducts()" class="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-600 text-sm" placeholder="Search product name, category, or SKU...">
+                            </div>
+                            <button onclick="openBarcodeScanner()" class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm flex items-center space-x-2 shadow-sm transition whitespace-nowrap">
+                                <i data-lucide="scan" class="w-4 h-4"></i>
+                                <span class="hidden sm:inline">Scan Barcode</span>
+                                <span class="sm:hidden">Scan</span>
+                            </button>
                         </div>
                         <select id="pos-category-select" onchange="filterPOSProducts()" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white focus:outline-none focus:border-emerald-600">
                             <option value="ALL">All Categories</option>
@@ -1138,6 +1155,79 @@
                 <button onclick="submitLockPin()" class="py-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-xl transition text-sm shadow-md">ENT</button>
             </div>
             <p id="lock-screen-error" class="text-xs text-rose-600 font-semibold hidden">Incorrect passcode! Please try again.</p>
+        </div>
+    </div>
+
+
+    <!-- CAMERA BARCODE SCANNER MODAL -->
+    <div id="barcode-scanner-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 flex flex-col animate-in zoom-in duration-200">
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                        <i data-lucide="scan-barcode" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-slate-800 text-base">Device Camera Barcode Scanner</h4>
+                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Point of Sale (POS) Instant Checkout</p>
+                    </div>
+                </div>
+                <button onclick="closeBarcodeScanner()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content Body -->
+            <div class="p-6 space-y-6">
+                <!-- Camera view-port -->
+                <div class="relative w-full aspect-video bg-slate-950 rounded-2xl overflow-hidden shadow-inner border border-slate-200 flex flex-col items-center justify-center">
+                    <!-- Laser target sweep animation -->
+                    <div class="absolute inset-0 pointer-events-none border border-emerald-500/20 rounded-2xl z-10 flex items-center justify-center">
+                        <!-- Laser line -->
+                        <div class="absolute w-full h-[2px] bg-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.8)] top-0 left-0 animate-scanner-sweep"></div>
+                        <!-- Viewfinder brackets -->
+                        <div class="w-48 h-32 border-2 border-emerald-400 rounded-lg bg-emerald-400/5 flex items-center justify-center">
+                            <span class="text-[10px] font-bold text-emerald-400/80 uppercase tracking-wider">Align Barcode Here</span>
+                        </div>
+                    </div>
+
+                    <!-- html5-qrcode element container -->
+                    <div id="barcode-reader-view" class="w-full h-full object-cover"></div>
+                </div>
+
+                <!-- Last Scan Notification Alert -->
+                <div id="scanner-status-badge" class="bg-slate-50 border border-slate-100 p-3 rounded-2xl flex items-center space-x-3 transition duration-150">
+                    <div class="w-2.5 h-2.5 rounded-full bg-slate-400 animate-pulse" id="scanner-indicator-dot"></div>
+                    <span class="text-xs font-bold text-slate-500" id="scanner-status-text">Ready. Waiting for item barcode scan...</span>
+                </div>
+
+                <!-- Settings Controls -->
+                <div class="flex items-center justify-between p-3 bg-emerald-50/50 border border-emerald-100 rounded-2xl">
+                    <div class="flex items-center space-x-2.5">
+                        <input type="checkbox" id="scanner-continuous-toggle" checked class="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-slate-200 rounded">
+                        <label for="scanner-continuous-toggle" class="text-xs font-bold text-slate-700">Continuous scanning mode (Rapid cart checkout)</label>
+                    </div>
+                </div>
+
+                <!-- Manual barcode entry fallback -->
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Manual Barcode Input Fallback</label>
+                    <div class="flex space-x-2">
+                        <input type="text" id="scanner-manual-input" class="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:border-emerald-600" placeholder="e.g. 1002938475">
+                        <button onclick="handleManualBarcodeSubmit()" class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2 px-5 rounded-xl text-xs transition">
+                            Submit Code
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end space-x-3">
+                <button onclick="closeBarcodeScanner()" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition">
+                    Close Scanner
+                </button>
+            </div>
         </div>
     </div>
 
@@ -3036,6 +3126,212 @@
         }
 
         // --- NEW POINT OF SALE FEATURES & SECURITY CONTROLLERS ---
+
+        // --- DEVICE CAMERA BARCODE SCANNER CONTROLLERS ---
+        let html5QrCodeScanner = null;
+
+        function openBarcodeScanner() {
+            // Check active login permission for register sales
+            const currentRole = (store.config && store.config.currentUserRole) || 'Super Admin';
+            if (currentRole === 'Accountant') {
+                alert("Permission Denied!\nYour active login role 'Accountant' is restricted to Financial Analysis, and cannot perform POS Billing Register sales checkout or barcode scanning operations.");
+                return;
+            }
+
+            // Show modal
+            document.getElementById('barcode-scanner-modal').classList.remove('hidden');
+            document.getElementById('scanner-manual-input').value = '';
+            
+            // Set status text
+            const statusText = document.getElementById('scanner-status-text');
+            statusText.innerText = "Ready. Waiting for item barcode scan...";
+            statusText.className = "text-xs font-bold text-slate-500";
+            
+            const dot = document.getElementById('scanner-indicator-dot');
+            dot.className = "w-2.5 h-2.5 rounded-full bg-slate-400 animate-pulse";
+
+            // Delay initialization slightly to let the modal fully open and render
+            setTimeout(() => {
+                try {
+                    if (!html5QrCodeScanner) {
+                        html5QrCodeScanner = new Html5Qrcode("barcode-reader-view");
+                    }
+                    
+                    const config = { 
+                        fps: 15, 
+                        qrbox: { width: 250, height: 150 } 
+                    };
+
+                    html5QrCodeScanner.start(
+                        { facingMode: "environment" },
+                        config,
+                        (decodedText, decodedResult) => {
+                            // On decode success
+                            processScannedBarcode(decodedText);
+                        },
+                        (errorMessage) => {
+                            // On decode failure, keep trying silently
+                        }
+                    ).catch(err => {
+                        console.error("Camera access failed", err);
+                        statusText.innerText = "Camera Access Error: Ensure browser permissions are granted.";
+                        statusText.className = "text-xs font-bold text-rose-600";
+                        dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+                    });
+                } catch (e) {
+                    console.error("Html5Qrcode initialization error", e);
+                }
+            }, 300);
+        }
+
+        function closeBarcodeScanner() {
+            document.getElementById('barcode-scanner-modal').classList.add('hidden');
+            if (html5QrCodeScanner) {
+                if (html5QrCodeScanner.isScanning) {
+                    html5QrCodeScanner.stop().then(() => {
+                        console.log("Barcode camera stream stopped.");
+                    }).catch(err => {
+                        console.error("Error stopping barcode scanner stream", err);
+                    });
+                }
+            }
+        }
+
+        function playBeepSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // high pitch pleasant chime
+                gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime); // low volume
+                
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.08); // 80ms beep
+            } catch (e) {
+                console.warn("AudioContext beep failed", e);
+            }
+        }
+
+        function playErrorBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(250, audioCtx.currentTime); // low buzz
+                gainNode.gain.setValueAtTime(0.06, audioCtx.currentTime);
+                
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.2); // 200ms buzz
+            } catch (e) {}
+        }
+
+        function processScannedBarcode(barcode) {
+            barcode = barcode.trim();
+            if (!barcode) return;
+
+            // Search product Catalog
+            const matchedProduct = store.products.find(p => p.barcode === barcode || p.sku === barcode);
+            const statusText = document.getElementById('scanner-status-text');
+            const dot = document.getElementById('scanner-indicator-dot');
+
+            if (matchedProduct) {
+                // Play pleasant beep sound
+                playBeepSound();
+
+                // Add item to cart
+                addCartItem(matchedProduct.id);
+
+                // Update UI status
+                statusText.innerText = `Scanned: ${matchedProduct.name} (+1 added to cart)`;
+                statusText.className = "text-xs font-bold text-emerald-700";
+                dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping";
+
+                // Return dot status back to normal pulse after 1.5 seconds
+                setTimeout(() => {
+                    if (document.getElementById('barcode-scanner-modal').classList.contains('hidden')) return;
+                    dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+                }, 1500);
+
+                // Continuous mode logic
+                const isContinuous = document.getElementById('scanner-continuous-toggle').checked;
+                if (!isContinuous) {
+                    setTimeout(() => {
+                        closeBarcodeScanner();
+                    }, 800);
+                }
+            } else {
+                // Play mistake buzzer
+                playErrorBeep();
+
+                statusText.innerText = `Barcode NOT FOUND in Catalog: [${barcode}]`;
+                statusText.className = "text-xs font-bold text-amber-600";
+                dot.className = "w-2.5 h-2.5 rounded-full bg-amber-500";
+
+                // If scanned code is not in store, ask if they want to create it
+                // We stop scanner first to prevent double-confirm alerts
+                if (html5QrCodeScanner && html5QrCodeScanner.isScanning) {
+                    html5QrCodeScanner.stop().then(() => {
+                        promptToRegisterBarcode(barcode);
+                    }).catch(() => {
+                        promptToRegisterBarcode(barcode);
+                    });
+                } else {
+                    promptToRegisterBarcode(barcode);
+                }
+            }
+        }
+
+        function promptToRegisterBarcode(barcode) {
+            setTimeout(() => {
+                if (confirm(`Barcode '${barcode}' is not registered in your active product catalog.\nWould you like to switch to the Product Catalog tab and register a new item with this barcode?`)) {
+                    document.getElementById('barcode-scanner-modal').classList.add('hidden');
+                    switchTab('products');
+                    showAddProductModal();
+                    
+                    // Autofill the barcode field in products modal
+                    const barcodeInput = document.getElementById('prod-barcode');
+                    if (barcodeInput) {
+                        barcodeInput.value = barcode;
+                    }
+                } else {
+                    // Resume scanning if continuous and reopened
+                    const isContinuous = document.getElementById('scanner-continuous-toggle').checked;
+                    if (isContinuous && !document.getElementById('barcode-scanner-modal').classList.contains('hidden')) {
+                        // Re-initialize start
+                        const config = { fps: 15, qrbox: { width: 250, height: 150 } };
+                        html5QrCodeScanner.start(
+                            { facingMode: "environment" },
+                            config,
+                            (decodedText, decodedResult) => {
+                                processScannedBarcode(decodedText);
+                            },
+                            (errorMessage) => {}
+                        ).catch(e => console.error("Error resuming scanner", e));
+                    }
+                }
+            }, 200);
+        }
+
+        function handleManualBarcodeSubmit() {
+            const input = document.getElementById('scanner-manual-input');
+            const barcode = input.value.trim();
+            if (!barcode) {
+                alert("Please enter a valid barcode numeric digits or SKU string.");
+                return;
+            }
+            processScannedBarcode(barcode);
+            input.value = '';
+        }
 
         function hasPermission(requiredRole = 'Manager', actionName = 'perform this action') {
             const currentRole = (store.config && store.config.currentUserRole) || 'Super Admin';
